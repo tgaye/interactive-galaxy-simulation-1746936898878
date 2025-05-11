@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Galaxy Simulation</title>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        canvas {
+            display: block;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 5px;
+            width: 250px;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        button {
+            background: #4a6ea9;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        button:hover {
+            background: #5a7eb9;
+        }
+    </style>
+
+<base target="_self">
+
+
+    <div id="controls">
+        <div class="control-group">
+            <label for="armCount">Spiral Arms: <span id="armCountValue">4</span></label>
+            <input type="range" id="armCount" min="1" max="8" value="4" step="1">
+        </div>
+        <div class="control-group">
+            <label for="armTightness">Arm Tightness: <span id="armTightnessValue">0.5</span></label>
+            <input type="range" id="armTightness" min="0.1" max="1" value="0.5" step="0.05">
+        </div>
+        <div class="control-group">
+            <label for="coreDensity">Core Density: <span id="coreDensityValue">0.7</span></label>
+            <input type="range" id="coreDensity" min="0.1" max="1" value="0.7" step="0.05">
+        </div>
+        <div class="control-group">
+            <label for="starCount">Star Count: <span id="starCountValue">5000</span></label>
+            <input type="range" id="starCount" min="1000" max="10000" value="5000" step="500">
+        </div>
+        <div class="control-group">
+            <label for="rotationSpeed">Rotation Speed: <span id="rotationSpeedValue">0.2</span></label>
+            <input type="range" id="rotationSpeed" min="0" max="1" value="0.2" step="0.05">
+        </div>
+        <div class="control-group">
+            <button id="randomize">Randomize</button>
+            <button id="reset">Reset</button>
+        </div>
+    </div>
+
+    <script>
+        // Main variables
+        let scene, camera, renderer, particles, particleSystem;
+        let galaxyParams = {
+            armCount: 4,
+            armTightness: 0.5,
+            coreDensity: 0.7,
+            starCount: 5000,
+            rotationSpeed: 0.2,
+            colorPalette: [
+                new THREE.Color(0x4a6ea9),
+                new THREE.Color(0x8a5a44),
+                new THREE.Color(0x9b59b6),
+                new THREE.Color(0x3498db),
+                new THREE.Color(0xe74c3c)
+            ]
+        };
+        let rotationAngle = 0;
+        let mouseX = 0, mouseY = 0;
+
+        // Initialize the scene
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 30;
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000);
+            document.body.appendChild(renderer.domElement);
+
+            // Create galaxy
+            createGalaxy();
+
+            // Add event listeners
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('mousemove', onMouseMove);
+
+            // Setup controls
+            setupControls();
+
+            // Start animation loop
+            animate();
+        }
+
+        // Create the galaxy particle system
+        function createGalaxy() {
+            if (particleSystem) {
+                scene.remove(particleSystem);
+                if (particleSystem && particleSystem.geometry) particleSystem.geometry.dispose();
+                if (particleSystem && particleSystem.material) particleSystem.material.dispose();
+            }
+
+            const particles = new THREE.BufferGeometry();
+            const positions = new Float32Array(galaxyParams.starCount * 3);
+            const colors = new Float32Array(galaxyParams.starCount * 3);
+            const sizes = new Float32Array(galaxyParams.starCount);
+
+            // Generate star positions
+            for (let i = 0; i < galaxyParams.starCount; i++) {
+                const i3 = i * 3;
+
+                // Spiral arm distribution
+                const arm = Math.floor(Math.random() * galaxyParams.armCount);
+                const angle = arm * (Math.PI * 2 / galaxyParams.armCount) + Math.random() * 0.2;
+                const radius = Math.pow(Math.random(), galaxyParams.coreDensity) * 20;
+
+                // Spiral shape
+                const spiralFactor = galaxyParams.armTightness * 5;
+                const spiralAngle = angle + spiralFactor * Math.log(radius);
+
+                // Position
+                positions[i3] = Math.cos(spiralAngle) * radius;
+                positions[i3 + 1] = (Math.random() - 0.5) * 2;
+                positions[i3 + 2] = Math.sin(spiralAngle) * radius;
+
+                // Color
+                const colorIndex = Math.floor(Math.random() * galaxyParams.colorPalette.length);
+                const color = galaxyParams.colorPalette[colorIndex];
+                colors[i3] = color.r;
+                colors[i3 + 1] = color.g;
+                colors[i3 + 2] = color.b;
+
+                // Size
+                sizes[i] = Math.random() * 2;
+            }
+
+            particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            particles.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+            const particleMaterial = new THREE.PointsMaterial({
+                size: 0.1,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8,
+                sizeAttenuation: true
+            });
+
+            particleSystem = new THREE.Points(particles, particleMaterial);
+            scene.add(particleSystem);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Rotate galaxy
+            rotationAngle += galaxyParams.rotationSpeed * 0.01;
+            if (particleSystem) {
+                particleSystem.rotation.y = rotationAngle;
+            }
+
+            // Camera movement based on mouse
+            camera.position.x += (mouseX * 0.5 - camera.position.x) * 0.05;
+            camera.position.y += (-mouseY * 0.5 - camera.position.y) * 0.05;
+            camera.lookAt(scene.position);
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Handle mouse movement
+        function onMouseMove(event) {
+            mouseX = (event.clientX - window.innerWidth / 2) / (window.innerWidth / 2);
+            mouseY = (event.clientY - window.innerHeight / 2) / (window.innerHeight / 2);
+        }
+
+        // Setup UI controls
+        function setupControls() {
+            // Arm count
+            const armCountSlider = document.getElementById('armCount');
+            const armCountValue = document.getElementById('armCountValue');
+            armCountSlider.addEventListener('input', function() {
+                galaxyParams.armCount = parseInt(this.value);
+                armCountValue.textContent = this.value;
+                createGalaxy();
+            });
+
+            // Arm tightness
+            const armTightnessSlider = document.getElementById('armTightness');
+            const armTightnessValue = document.getElementById('armTightnessValue');
+            armTightnessSlider.addEventListener('input', function() {
+                galaxyParams.armTightness = parseFloat(this.value);
+                armTightnessValue.textContent = this.value;
+                createGalaxy();
+            });
+
+            // Core density
+            const coreDensitySlider = document.getElementById('coreDensity');
+            const coreDensityValue = document.getElementById('coreDensityValue');
+            coreDensitySlider.addEventListener('input', function() {
+                galaxyParams.coreDensity = parseFloat(this.value);
+                coreDensityValue.textContent = this.value;
+                createGalaxy();
+            });
+
+            // Star count
+            const starCountSlider = document.getElementById('starCount');
+            const starCountValue = document.getElementById('starCountValue');
+            starCountSlider.addEventListener('input', function() {
+                galaxyParams.starCount = parseInt(this.value);
+                starCountValue.textContent = this.value;
+                createGalaxy();
+            });
+
+            // Rotation speed
+            const rotationSpeedSlider = document.getElementById('rotationSpeed');
+            const rotationSpeedValue = document.getElementById('rotationSpeedValue');
+            rotationSpeedSlider.addEventListener('input', function() {
+                galaxyParams.rotationSpeed = parseFloat(this.value);
+                rotationSpeedValue.textContent = this.value;
+            });
+
+            // Randomize button
+            document.getElementById('randomize').addEventListener('click', function() {
+                galaxyParams.armCount = Math.floor(Math.random() * 7) + 1;
+                galaxyParams.armTightness = Math.random() * 0.9 + 0.1;
+                galaxyParams.coreDensity = Math.random() * 0.9 + 0.1;
+                galaxyParams.starCount = Math.floor(Math.random() * 9000) + 1000;
+                galaxyParams.rotationSpeed = Math.random();
+
+                // Update sliders
+                armCountSlider.value = galaxyParams.armCount;
+                armCountValue.textContent = galaxyParams.armCount;
+                armTightnessSlider.value = galaxyParams.armTightness;
+                armTightnessValue.textContent = galaxyParams.armTightness.toFixed(2);
+                coreDensitySlider.value = galaxyParams.coreDensity;
+                coreDensityValue.textContent = galaxyParams.coreDensity.toFixed(2);
+                starCountSlider.value = galaxyParams.starCount;
+                starCountValue.textContent = galaxyParams.starCount;
+                rotationSpeedSlider.value = galaxyParams.rotationSpeed;
+                rotationSpeedValue.textContent = galaxyParams.rotationSpeed.toFixed(2);
+
+                createGalaxy();
+            });
+
+            // Reset button
+            document.getElementById('reset').addEventListener('click', function() {
+                galaxyParams.armCount = 4;
+                galaxyParams.armTightness = 0.5;
+                galaxyParams.coreDensity = 0.7;
+                galaxyParams.starCount = 5000;
+                galaxyParams.rotationSpeed = 0.2;
+
+                // Update sliders
+                armCountSlider.value = galaxyParams.armCount;
+                armCountValue.textContent = galaxyParams.armCount;
+                armTightnessSlider.value = galaxyParams.armTightness;
+                armTightnessValue.textContent = galaxyParams.armTightness.toFixed(2);
+                coreDensitySlider.value = galaxyParams.coreDensity;
+                coreDensityValue.textContent = galaxyParams.coreDensity.toFixed(2);
+                starCountSlider.value = galaxyParams.starCount;
+                starCountValue.textContent = galaxyParams.starCount;
+                rotationSpeedSlider.value = galaxyParams.rotationSpeed;
+                rotationSpeedValue.textContent = galaxyParams.rotationSpeed.toFixed(2);
+
+                createGalaxy();
+            });
+        }
+
+        // Start the application
+        init();
+    </script>
+
+              
+          
+                
+          
+              
